@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
-import argparse,array,can,json,os,queue,re,signal,threading,time
+import argparse,array,json,os,queue,re,signal,threading,time
 import ruamel.yaml as yaml
+import can
+
 
 
 def signal_handler(signal, frame):
@@ -210,12 +212,38 @@ def convert_unit(myvalue,myunit,mytype):
     return new_value
 
 def main():
+    global lasttime
     retain=False
+    lasttime = 0
     if(mqttOut==2):
         retain=True
+    if debug_level == 5:
+        datafile = open("datafile.txt", "w")
+    elif debug_level == 4:
+        datafile = open("datafile.txt", "r")
 
     def getLine():
-        if q.empty():  # Check if there is a message in queue
+        global lasttime
+        if debug_level == 4:
+            #all input comes just from a file
+            myresult = json.loads(datafile.readline())
+            curtime = float(myresult['timestamp'])
+            if lasttime== 0:
+                lasttime = curtime
+            time.sleep(curtime - lasttime)
+            lasttime = curtime
+            if screenOut>0:
+                print(json.dumps(myresult))
+
+            if mqttOut:
+                topic = mqttTopic + "/" + myresult['name']
+                try:
+                    topic += "/" + str(myresult['instance'])
+                except:
+                    pass
+                mqttc.publish(topic,json.dumps(myresult),retain=retain)
+        
+        elif q.empty():  # Check if there is a message in queue
             return
 
         message = q.get()
@@ -236,6 +264,10 @@ def main():
                     dgn,prio,srcAD,", ".join("{0:02X}".format(x) for x in message.data)))
 
             myresult=rvc_decode(dgn,"".join("{0:02X}".format(x) for x in message.data))
+            myresult.update({"timestamp": str(message.timestamp)})
+            if debug_level == 5:
+                datafile.write(json.dumps(myresult))
+                datafile.write("\n")
 
             if screenOut>0:
                 print(json.dumps(myresult))
@@ -256,12 +288,15 @@ def main():
             time.sleep(0.001)
         if mqttOut:
             mqttc.loop_stop()
+        if debug_level>3:
+            datafile.close()
+            print("datafile closed")
     mainLoop()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--broker", default = "localhost", help="MQTT Broker Host")
-    parser.add_argument("-d", "--debug", default = 0, type=int, choices=[0, 1, 2], help="debug data")
+    parser.add_argument("-d", "--debug", default = 0, type=int, choices=[0, 1, 2, 3, 4, 5], help="debug data")
     parser.add_argument("-i", "--interface", default = "can0", help="CAN interface to use")
     parser.add_argument("-m", "--mqtt", default = 0, type=int, choices=[0, 1, 2], help="Send to MQTT, 1=Publish, 2=Retain")
     parser.add_argument("-o", "--output", default = 0, type=int, choices=[0, 1], help="Dump parsed data to stdout")
@@ -292,7 +327,7 @@ if __name__ == "__main__":
 
     try:
         print("Connecting to CAN-Bus interface: {0:s}".format(args.interface))
-        bus = can.interface.Bus(channel=args.interface, bustype='socketcan_native')
+        bus = can.interface.Bus(channel=args.interface, bustype='socketcan')
     except OSError:
         print('Cannot find interface.')
         exit()
