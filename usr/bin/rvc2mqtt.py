@@ -217,17 +217,26 @@ def main():
     lasttime = 0
     if(mqttOut==2):
         retain=True
+    
     if debug_level == 5:
         datafile = open("datafile.txt", "w")
     elif debug_level == 4:
-        datafile = open("datafile.txt", "r")
+        try:
+            datafile = open("datafile.txt", "r")
+        except:
+            print("Can't open datafile.txt")
+            exit()
 
     def getLine():
         global lasttime
         if debug_level == 4:
             #all input comes just from a file
-            myresult = json.loads(datafile.readline())
-            curtime = float(myresult['timestamp'])
+            try:
+                myresult = json.loads(datafile.readline())
+                curtime = float(myresult['timestamp'])
+            except:
+                datafile.close()
+                exit()
             if lasttime== 0:
                 lasttime = curtime
             time.sleep(curtime - lasttime)
@@ -242,8 +251,9 @@ def main():
                 except:
                     pass
                 mqttc.publish(topic,json.dumps(myresult),retain=retain)
+            return
         
-        elif q.empty():  # Check if there is a message in queue
+        if q.empty():  # Check if there is a message in queue
             return
 
         message = q.get()
@@ -269,9 +279,6 @@ def main():
                 datafile.write(json.dumps(myresult))
                 datafile.write("\n")
 
-            if screenOut>0:
-                print(json.dumps(myresult))
-
             if mqttOut:
                 topic = mqttTopic + "/" + myresult['name']
                 try:
@@ -280,17 +287,23 @@ def main():
                     pass
                 mqttc.publish(topic,json.dumps(myresult),retain=retain)
 
+            if screenOut>0:
+                print(topic, "-", json.dumps(myresult))
+
     def mainLoop():
         if mqttOut:
             mqttc.loop_start()
-        while True:
-            getLine()
-            time.sleep(0.001)
-        if mqttOut:
-            mqttc.loop_stop()
-        if debug_level>3:
-            datafile.close()
-            print("datafile closed")
+        try:
+            while True:
+                getLine()
+                time.sleep(0.001)
+        except KeyboardInterrupt:
+            if mqttOut:
+                mqttc.loop_stop()
+            if debug_level>3:
+                datafile.close()
+                print("datafile closed")
+            raise SystemExit 
     mainLoop()
 
 if __name__ == "__main__":
