@@ -1,0 +1,4 @@
+python-can
+paho.mqtt
+#ruamel.yaml will be loaded seperately due to lack of C compiler and errors if part of requirements.txt
+

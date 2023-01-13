@@ -231,11 +231,20 @@ def main():
         global lasttime
         if debug_level == 4:
             #all input comes just from a file
+            line = datafile.readline()
+            if not line:
+                #hit eof now replay datafile for ever
+                print('Seeking to beginning..............................................')
+                print('...............................................................................................................................')
+                datafile.seek(0,0)
+                line = datafile.readline()
+                lasttime = 0
             try:
-                myresult = json.loads(datafile.readline())
+                myresult = json.loads(line)
                 curtime = float(myresult['timestamp'])
             except:
                 datafile.close()
+                print('Error in datafile format. Stopping')
                 exit()
             if lasttime== 0:
                 lasttime = curtime
