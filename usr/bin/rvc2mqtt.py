@@ -347,13 +347,6 @@ if __name__ == "__main__":
         except:
             print("MQTT Broker Connection Failed")
 
-    try:
-        print("Connecting to CAN-Bus interface: {0:s}".format(args.interface))
-        bus = can.interface.Bus(channel=args.interface, bustype='socketcan')
-    except OSError:
-        print('Cannot find interface.')
-        exit()
-
     print("Loading RVC Spec file {}.".format(args.specfile))
     with open(args.specfile,'r') as specfile:
         try:
@@ -362,10 +355,18 @@ if __name__ == "__main__":
             print(err)
             exit(1)
 
-    print("Processing start...")
+    if debug_level != 4:
+        try:
+            print("Connecting to CAN-Bus interface: {0:s}".format(args.interface))
+            bus = can.interface.Bus(channel=args.interface, bustype='socketcan')
+        except OSError:
+            print('Cannot find interface.')
+            exit()
 
-    q = queue.Queue()
-    t = CANWatcher()	# Start CAN receive thread
-    t.start()
+        q = queue.Queue()
+        t = CANWatcher()	# Start CAN receive thread
+        t.start()
+
+    print("Processing start...")
 
     main()
