@@ -2,7 +2,6 @@
 FROM python:3.10-slim-buster
 
 ARG SRCDATA=usr/bin
-ARG CANID="can0:"
 WORKDIR /app/rvc2mqtt
 
 COPY $SRCDATA/datafile.txt .
@@ -15,5 +14,5 @@ RUN python -m pip install --no-deps ruamel.yaml
 
 RUN python -m pip install -r requirements.txt
 
-CMD python3 rvc2mqtt.py -o1 -d4 -m1 -s/app/rvc2mqtt/rvc-spec.yml
+CMD python3 rvc2mqtt.py -o0 -d4 -m1 -s/app/rvc2mqtt/rvc-spec.yml
 
