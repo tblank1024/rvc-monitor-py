@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+import can
 
 import argparse,array,json,os,queue,re,signal,threading,time
 import ruamel.yaml as yaml
-import can
 
 
 
@@ -297,7 +297,7 @@ def main():
                 mqttc.publish(topic,json.dumps(myresult),retain=retain)
 
             if screenOut>0:
-                print(topic, "-", json.dumps(myresult))
+                print(topic, "-", json.dumps(myresult, indent=4))
 
     def mainLoop():
         if mqttOut:
@@ -320,7 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--broker", default = "localhost", help="MQTT Broker Host")
     parser.add_argument("-d", "--debug", default = 0, type=int, choices=[0, 1, 2, 3, 4, 5], help="debug data")
     parser.add_argument("-i", "--interface", default = "can0", help="CAN interface to use")
-    parser.add_argument("-m", "--mqtt", default = 0, type=int, choices=[0, 1, 2], help="Send to MQTT, 1=Publish, 2=Retain")
+    parser.add_argument("-m", "--mqtt", default = 1, type=int, choices=[0, 1, 2], help="MQTT: 0=Don't publish, 1=Publish to MQTT, 2=Publish and Retain")
     parser.add_argument("-o", "--output", default = 0, type=int, choices=[0, 1], help="Dump parsed data to stdout")
     parser.add_argument("-s", "--specfile", default = "/etc/rvc/rvc-spec.yml", help="RVC Spec file")
     parser.add_argument("-t", "--topic", default = "RVC", help="MQTT topic prefix")
