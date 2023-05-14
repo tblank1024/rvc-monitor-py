@@ -14,5 +14,5 @@ RUN python -m pip install --no-deps ruamel.yaml
 
 RUN python -m pip install -r requirements.txt
 
-CMD python3 rvc2mqtt.py -o0 -d4 -m1 -s/app/rvc2mqtt/rvc-spec.yml
+CMD python3 rvc2mqtt.py -o0 -d0 -s/app/rvc2mqtt/rvc-spec.yml
 
