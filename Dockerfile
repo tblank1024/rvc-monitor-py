@@ -1,5 +1,5 @@
 #rvc2mqtt from linuxkid into docker image
-FROM python:3.10-slim-buster
+FROM python:3.10.11-slim-buster
 
 ARG SRCDATA=usr/bin
 WORKDIR /app/rvc2mqtt

@@ -13,7 +13,11 @@ while line:
     #all input comes just from a file
     try:
         myresult = json.loads(line)
-        summary.update({myresult["name"]: myresult})
+        #print(myresult)
+        if "instance" in myresult:
+            summary.update({myresult["name"]+'/' + str(myresult["instance"]): myresult})
+        else:
+            summary.update({myresult["name"]: myresult})
     except:
         datafile.close()
         print('file format error closing')

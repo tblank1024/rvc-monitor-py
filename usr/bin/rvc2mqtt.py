@@ -267,7 +267,10 @@ def main():
 
         message = q.get()
         if debug_level>0:
-            print("{0:f} {1:X} ({2:X}) ".format(message.timestamp, message.arbitration_id, message.dlc),end='',flush=True)
+            print("Raw  msg ** {0}".format(message),flush=True)
+            print("***{0:f} {1:X} ({2:X}) ***".format(message.timestamp, message.arbitration_id, message.dlc),end='',flush=True)
+
+                
 
         try:
             canID = "{0:b}".format(message.arbitration_id)
@@ -318,7 +321,14 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--broker", default = "localhost", help="MQTT Broker Host")
-    parser.add_argument("-d", "--debug", default = 0, type=int, choices=[0, 1, 2, 3, 4, 5], help="debug data")
+    parser.add_argument("-d", "--debug", default = 0, type=int, choices=[0, 1, 2, 3, 4, 5], \
+        help="debug data level \n\
+            0=No debug\n\
+            1=Print CAN messages\n\
+            2=Print CAN messages and dump to datafile.txt\n\
+            3=Print CAN messages and dump to datafile.txt and print parsed data\n\
+            4=Read from datafile.txt and print parsed data\n\
+            5=Write all transactions to to datafile.txt")
     parser.add_argument("-i", "--interface", default = "can0", help="CAN interface to use")
     parser.add_argument("-m", "--mqtt", default = 1, type=int, choices=[0, 1, 2], help="MQTT: 0=Don't publish, 1=Publish to MQTT, 2=Publish and Retain")
     parser.add_argument("-o", "--output", default = 0, type=int, choices=[0, 1], help="Dump parsed data to stdout")
