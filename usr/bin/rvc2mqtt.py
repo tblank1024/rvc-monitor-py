@@ -360,7 +360,8 @@ if __name__ == "__main__":
     print("Loading RVC Spec file {}.".format(args.specfile))
     with open(args.specfile,'r') as specfile:
         try:
-            spec=yaml.round_trip_load(specfile)
+            yaml_loader = yaml.YAML()
+            spec = yaml_loader.load(specfile)
         except yaml.YAMLError as err:
             print(err)
             exit(1)
