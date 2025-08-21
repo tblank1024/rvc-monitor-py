@@ -4,6 +4,8 @@ import can
 import argparse,array,json,os,queue,re,signal,threading,time
 import ruamel.yaml as yaml
 
+# Get the directory where the script is located for relative paths
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def signal_handler(signal, frame):
@@ -16,14 +18,14 @@ def signal_handler(signal, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
-def on_mqtt_connect(client, userdata, flags, rc):
+def on_mqtt_connect(client, userdata, flags, rc, properties=None):
     if debug_level:
         print("MQTT Connected with code "+str(rc))
     client.subscribe([
         (mqttTopic + "/transmit/#", 0)
         ])
 
-def on_mqtt_subscribe(client, userdata, mid, granted_qos):
+def on_mqtt_subscribe(client, userdata, mid, reason_code_list, properties=None):
     if debug_level:
         print("MQTT Sub: "+str(mid))
 
@@ -59,11 +61,27 @@ class CANWatcher(threading.Thread):
       threading.Thread.__init__(self)
       # A flag to notify the thread that it should finish up and exit
       self.kill_received = False
+      self.last_message_time = time.time()
+      self.total_messages_received = 0
 
     def run(self):
+        print("CAN Watcher thread started")
         while not self.kill_received:
-            message = bus.recv()
-            q.put(message)  # Put message into queue
+            try:
+                # Add timeout to prevent hanging indefinitely
+                message = bus.recv(timeout=5.0)  # 5 second timeout
+                if message is not None:
+                    self.total_messages_received += 1
+                    self.last_message_time = time.time()
+                    if debug_level > 0:
+                        print(f"CAN Watcher: Received message #{self.total_messages_received}")
+                    q.put(message)  # Put message into queue
+                else:
+                    if debug_level > 0:
+                        print("CAN Watcher: No message received (timeout)")
+            except Exception as e:
+                print(f"CAN Watcher error: {e}")
+                time.sleep(1)
 
 def rvc_decode(mydgn, mydata):
     result = { 'dgn':mydgn, 'data':mydata, 'name':"UNKNOWN-"+mydgn }
@@ -260,10 +278,10 @@ def main():
                 except:
                     pass
                 mqttc.publish(topic,json.dumps(myresult),retain=retain)
-            return
+            return True
         
         if q.empty():  # Check if there is a message in queue
-            return
+            return False
 
         message = q.get()
         if debug_level>0:
@@ -301,15 +319,30 @@ def main():
 
             if screenOut>0:
                 print(topic, "-", json.dumps(myresult, indent=4))
+        return True
 
     def mainLoop():
         if mqttOut:
             mqttc.loop_start()
+
+        last_status_time = time.time()
+
         try:
             while True:
-                getLine()
+                result = getLine()
                 time.sleep(0.001)
+                current_time = time.time()
+                
+                # Check if CAN traffic has been received recently (last 10 seconds)
+                # Only show "no traffic" message if no CAN messages have been received by the watcher
+                if (current_time - last_status_time) >= 10:
+                    time_since_last_message = current_time - t.last_message_time
+                    if time_since_last_message >= 10:
+                        print(f"No CAN traffic detected in last {int(time_since_last_message)} seconds")
+                    last_status_time = current_time
+                    
         except KeyboardInterrupt:
+            print("Received interrupt signal, shutting down...")
             if mqttOut:
                 mqttc.loop_stop()
             if debug_level>3:
@@ -332,7 +365,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--interface", default = "can0", help="CAN interface to use")
     parser.add_argument("-m", "--mqtt", default = 1, type=int, choices=[0, 1, 2], help="MQTT: 0=Don't publish, 1=Publish to MQTT, 2=Publish and Retain")
     parser.add_argument("-o", "--output", default = 0, type=int, choices=[0, 1], help="Dump parsed data to stdout")
-    parser.add_argument("-s", "--specfile", default = "/etc/rvc/rvc-spec.yml", help="RVC Spec file")
+    parser.add_argument("-s", "--specfile", default = os.path.join(script_dir, "rvc-spec.yml"), help="RVC Spec file")
     parser.add_argument("-t", "--topic", default = "RVC", help="MQTT topic prefix")
     parser.add_argument("-p", "--pstrings", action='store_true', help="Send parameterized strings to mqtt")
     args = parser.parse_args()
@@ -342,11 +375,11 @@ if __name__ == "__main__":
     screenOut = args.output
     mqttTopic = args.topic
     parameterized_strings = args.pstrings
-
+    
     if mqttOut:
         import paho.mqtt.client as mqtt
         broker_address=args.broker
-        mqttc = mqtt.Client() #create new instance
+        mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2) #create new instance with updated API
         mqttc.on_connect = on_mqtt_connect
         mqttc.on_subscribe = on_mqtt_subscribe
         mqttc.on_message = on_mqtt_message
@@ -369,7 +402,7 @@ if __name__ == "__main__":
     if debug_level != 4:
         try:
             print("Connecting to CAN-Bus interface: {0:s}".format(args.interface))
-            bus = can.interface.Bus(channel=args.interface, bustype='socketcan')
+            bus = can.interface.Bus(channel=args.interface, interface='socketcan')
         except OSError:
             print('Cannot find interface.')
             exit()
@@ -378,6 +411,6 @@ if __name__ == "__main__":
         t = CANWatcher()	# Start CAN receive thread
         t.start()
 
-    print("Processing start...")
+    print("Processing started")
 
     main()

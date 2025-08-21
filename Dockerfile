@@ -16,9 +16,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ruamel.yaml independently since there is no C compiler
-RUN python -m pip install --no-deps ruamel.yaml
-
+# Install Python dependencies
 RUN python -m pip install -r requirements.txt
 
 # Set environment variables with defaults
