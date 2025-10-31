@@ -7,6 +7,9 @@ import ruamel.yaml as yaml
 # Get the directory where the script is located for relative paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Global MQTT connection status
+mqtt_connected = False
+
 
 def signal_handler(signal, frame):
     global t
@@ -19,11 +22,23 @@ def signal_handler(signal, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 def on_mqtt_connect(client, userdata, flags, rc, properties=None):
+    global mqtt_connected
     if debug_level:
         print("MQTT Connected with code "+str(rc))
-    client.subscribe([
-        (mqttTopic + "/transmit/#", 0)
-        ])
+    if rc == 0:
+        mqtt_connected = True
+        client.subscribe([
+            (mqttTopic + "/transmit/#", 0)
+            ])
+    else:
+        mqtt_connected = False
+        print(f"MQTT Connection failed with code {rc}")
+
+def on_mqtt_disconnect(client, userdata, flags, rc, properties=None):
+    global mqtt_connected
+    mqtt_connected = False
+    if debug_level:
+        print(f"MQTT Disconnected with code {rc}")
 
 def on_mqtt_subscribe(client, userdata, mid, reason_code_list, properties=None):
     if debug_level:
@@ -34,6 +49,55 @@ def on_mqtt_message(client, userdata, msg):
     if debug_level:
         print("Send CAN ID: "+topic+" Data: "+msg.payload.decode('ascii'))
     #can_tx(devIds[dev],[ commands[msg.payload.decode('ascii')] ])
+
+def mqtt_publish_with_retry(client, topic, payload, retain=False, max_retries=3):
+    """Publish MQTT message with retry logic and error handling"""
+    global mqtt_connected, broker_address
+    
+    for attempt in range(max_retries):
+        try:
+            if not mqtt_connected:
+                print("MQTT not connected, attempting reconnection...")
+                mqtt_reconnect(client)
+                
+            if mqtt_connected:
+                result = client.publish(topic, payload, retain=retain)
+                if result.rc == 0:
+                    return True
+                else:
+                    print(f"MQTT publish failed with code {result.rc}, attempt {attempt + 1}")
+            else:
+                print(f"MQTT connection failed, attempt {attempt + 1}")
+                
+        except (BrokenPipeError, ConnectionResetError, OSError, TimeoutError) as e:
+            print(f"MQTT publish error: {e}, attempt {attempt + 1}")
+            mqtt_connected = False
+            
+        except Exception as e:
+            print(f"Unexpected MQTT error: {e}, attempt {attempt + 1}")
+            mqtt_connected = False
+            
+        if attempt < max_retries - 1:
+            time.sleep(1)  # Wait before retry
+            
+    print(f"Failed to publish after {max_retries} attempts")
+    return False
+
+def mqtt_reconnect(client):
+    """Attempt to reconnect to MQTT broker"""
+    global mqtt_connected, broker_address
+    
+    try:
+        print("Attempting MQTT reconnection...")
+        client.disconnect()  # Clean disconnect first
+        time.sleep(2)
+        client.reconnect()
+        # Note: mqtt_connected will be set in on_mqtt_connect callback
+        time.sleep(1)  # Give time for connection callback
+        
+    except Exception as e:
+        print(f"MQTT reconnection failed: {e}")
+        mqtt_connected = False
 
 # can_tx(canid, canmsg)
 #    canid = numeric CAN ID, not string
@@ -277,7 +341,7 @@ def main():
                     topic += "/" + str(myresult['instance'])
                 except:
                     pass
-                mqttc.publish(topic,json.dumps(myresult),retain=retain)
+                mqtt_publish_with_retry(mqttc, topic, json.dumps(myresult), retain)
             return True
         
         if q.empty():  # Check if there is a message in queue
@@ -315,7 +379,7 @@ def main():
                     topic += "/" + str(myresult['instance'])
                 except:
                     pass
-                mqttc.publish(topic,json.dumps(myresult),retain=retain)
+                mqtt_publish_with_retry(mqttc, topic, json.dumps(myresult), retain)
 
             if screenOut>0:
                 print(topic, "-", json.dumps(myresult, indent=4))
@@ -326,12 +390,20 @@ def main():
             mqttc.loop_start()
 
         last_status_time = time.time()
+        last_mqtt_check = time.time()
 
         try:
             while True:
                 result = getLine()
                 time.sleep(0.001)
                 current_time = time.time()
+                
+                # Check MQTT connection status every 30 seconds
+                if mqttOut and (current_time - last_mqtt_check) >= 30:
+                    if not mqtt_connected:
+                        print("MQTT connection lost, attempting reconnection...")
+                        mqtt_reconnect(mqttc)
+                    last_mqtt_check = current_time
                 
                 # Check if CAN traffic has been received recently (last 10 seconds)
                 # Only show "no traffic" message if no CAN messages have been received by the watcher
@@ -381,14 +453,19 @@ if __name__ == "__main__":
         broker_address=args.broker
         mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2) #create new instance with updated API
         mqttc.on_connect = on_mqtt_connect
+        mqttc.on_disconnect = on_mqtt_disconnect
         mqttc.on_subscribe = on_mqtt_subscribe
         mqttc.on_message = on_mqtt_message
 
+        # Configure automatic reconnection
+        mqttc.reconnect_delay_set(min_delay=1, max_delay=60)
+        
         try:
             print("Connecting to MQTT: {0:s}".format(broker_address))
             mqttc.connect(broker_address, port=1883) #connect to broker
-        except:
-            print("MQTT Broker Connection Failed")
+        except Exception as e:
+            print(f"MQTT Broker Connection Failed: {e}")
+            mqtt_connected = False
 
     print("Loading RVC Spec file {}.".format(args.specfile))
     with open(args.specfile,'r') as specfile:
