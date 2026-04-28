@@ -1417,6 +1417,7 @@ API_VERSION: 0
         3: aps only
         4: load sense
         5: waiting to invert
+        255: not available
     - byte: 2
       bit: 0-1
       name: battery temperature sensor present
