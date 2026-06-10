@@ -51,53 +51,39 @@ def on_mqtt_message(client, userdata, msg):
     #can_tx(devIds[dev],[ commands[msg.payload.decode('ascii')] ])
 
 def mqtt_publish_with_retry(client, topic, payload, retain=False, max_retries=3):
-    """Publish MQTT message with retry logic and error handling"""
-    global mqtt_connected, broker_address
-    
+    """Publish MQTT message, tolerating brief connection drops.
+
+    Reconnection itself is left entirely to paho's network loop thread
+    (started via loop_start(), with reconnect_delay_set() configuring its
+    backoff). We must NOT call client.disconnect()/client.reconnect() from
+    here: disconnect() marks the drop as intentional, which tells the loop
+    thread to stop trying to reconnect, and racing a manual reconnect()
+    against that thread can wedge the client in a permanently-disconnected
+    state (observed after a broker restart -- required killing the container
+    to recover). So if we're not connected, we just wait for mqtt_connected
+    to flip back to True via the on_connect callback.
+    """
+    global mqtt_connected
+
     for attempt in range(max_retries):
-        try:
-            if not mqtt_connected:
-                print("MQTT not connected, attempting reconnection...")
-                mqtt_reconnect(client)
-                
-            if mqtt_connected:
+        if mqtt_connected:
+            try:
                 result = client.publish(topic, payload, retain=retain)
                 if result.rc == 0:
                     return True
-                else:
-                    print(f"MQTT publish failed with code {result.rc}, attempt {attempt + 1}")
-            else:
-                print(f"MQTT connection failed, attempt {attempt + 1}")
-                
-        except (BrokenPipeError, ConnectionResetError, OSError, TimeoutError) as e:
-            print(f"MQTT publish error: {e}, attempt {attempt + 1}")
-            mqtt_connected = False
-            
-        except Exception as e:
-            print(f"Unexpected MQTT error: {e}, attempt {attempt + 1}")
-            mqtt_connected = False
-            
+                print(f"MQTT publish failed with code {result.rc}, attempt {attempt + 1}")
+            except (BrokenPipeError, ConnectionResetError, OSError, TimeoutError) as e:
+                print(f"MQTT publish error: {e}, attempt {attempt + 1}")
+            except Exception as e:
+                print(f"Unexpected MQTT error: {e}, attempt {attempt + 1}")
+        else:
+            print(f"MQTT not connected, attempt {attempt + 1} (waiting for automatic reconnect)")
+
         if attempt < max_retries - 1:
-            time.sleep(1)  # Wait before retry
-            
+            time.sleep(1)  # give the loop thread a chance to (re)connect
+
     print(f"Failed to publish after {max_retries} attempts")
     return False
-
-def mqtt_reconnect(client):
-    """Attempt to reconnect to MQTT broker"""
-    global mqtt_connected, broker_address
-    
-    try:
-        print("Attempting MQTT reconnection...")
-        client.disconnect()  # Clean disconnect first
-        time.sleep(2)
-        client.reconnect()
-        # Note: mqtt_connected will be set in on_mqtt_connect callback
-        time.sleep(1)  # Give time for connection callback
-        
-    except Exception as e:
-        print(f"MQTT reconnection failed: {e}")
-        mqtt_connected = False
 
 # can_tx(canid, canmsg)
 #    canid = numeric CAN ID, not string
@@ -301,7 +287,8 @@ def main():
         retain=True
     
     if debug_level == 5:
-        datafile = open("datafile.txt", "w")
+        # Write to /dev/shm (tmpfs) to avoid wearing the SD card; data is lost on container restart.
+        datafile = open("/dev/shm/rvc2mqtt_debug.txt", "w")
     elif debug_level == 4:
         try:
             datafile = open("datafile.txt", "r")
@@ -398,11 +385,13 @@ def main():
                 time.sleep(0.001)
                 current_time = time.time()
                 
-                # Check MQTT connection status every 30 seconds
+                # Report MQTT connection status every 30 seconds (informational
+                # only -- the loop thread started below handles reconnection
+                # automatically, see mqtt_publish_with_retry for why we don't
+                # drive it manually here)
                 if mqttOut and (current_time - last_mqtt_check) >= 30:
                     if not mqtt_connected:
-                        print("MQTT connection lost, attempting reconnection...")
-                        mqtt_reconnect(mqttc)
+                        print("MQTT still disconnected; waiting for automatic reconnect...")
                     last_mqtt_check = current_time
                 
                 # Check if CAN traffic has been received recently (last 10 seconds)
@@ -442,7 +431,9 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--pstrings", action='store_true', help="Send parameterized strings to mqtt")
     args = parser.parse_args()
 
-    debug_level = args.debug
+    # ENV DEBUG_LEVEL (set in Dockerfile/compose) takes precedence so the container
+    # default pins debug off without requiring a CMD change.
+    debug_level = int(os.environ.get('DEBUG_LEVEL', args.debug))
     mqttOut = args.mqtt
     screenOut = args.output
     mqttTopic = args.topic
