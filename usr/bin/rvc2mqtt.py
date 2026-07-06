@@ -448,6 +448,12 @@ if __name__ == "__main__":
         mqttc.on_subscribe = on_mqtt_subscribe
         mqttc.on_message = on_mqtt_message
 
+        # Broker credentials from the environment (set by docker-compose);
+        # unset means anonymous, so the script still works without auth.
+        mqtt_user = os.environ.get('MQTT_USER')
+        if mqtt_user:
+            mqttc.username_pw_set(mqtt_user, os.environ.get('MQTT_PASS', ''))
+
         # Configure automatic reconnection
         mqttc.reconnect_delay_set(min_delay=1, max_delay=60)
         
